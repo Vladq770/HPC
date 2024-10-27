@@ -14,8 +14,14 @@ def cuda_vector_sum(vector, vec_sum) -> None:
         vec_sum: Сумма элементов вектора.
     """
     i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
-    if i < vector.size:
-        cuda.atomic.add(vec_sum, 0, vector[i])
+    if i < vector.size // elements_by_thread + 1:
+        temp_sum = 0
+        for j in range(elements_by_thread):
+            index = j + i * elements_by_thread
+            if index >= vector.size:
+                break
+            temp_sum += vector[index]
+        cuda.atomic.add(vec_sum, 0, temp_sum)
 
 
 @jit(nopython=True, cache=True)
@@ -65,18 +71,19 @@ def run_cuda_vector_sum(vector: np.ndarray, vec_sum: np.ndarray) -> np.ndarray:
     # blocksize или количество потоков на блок, стандартное значение = 32
     tpb = device.WARP_SIZE
     # блоков на грид
-    bpg = int(np.ceil((n) / tpb))
+    bpg = int(np.ceil(n / tpb / elements_by_thread))
     # вызов ядра
     cuda_vector_sum[bpg, tpb](d_vector, d_vec_sum)
     return d_vec_sum.copy_to_host()
 
 
 n = 10 ** 2
+elements_by_thread = 32
 number_of_tests = 12
 vector = np.random.rand(n)
 vec_sum = np.random.rand(1)
 device = cuda.get_current_device()
-k = 8
+k = 5
 results = np.zeros((k, 8))
 results[:, 0] = [10 ** (4 + i) for i in range(k)]
 for i in range(k):
